@@ -6,16 +6,17 @@ require('dotenv').config();
 
 const app = express();
 // ==========================================
-// CONFIGURAÇÃO DO CORS (LIBERAÇÃO TOTAL WEB)
+// CONFIGURAÇÃO DO CORS CORRETA (EXPRESS 5+)
 // ==========================================
 app.use(cors({
-    origin: '*', // Permite que qualquer origem (Vercel, Localhost, Celular) acesse a API
+    origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
 }));
 
-// Resposta explícita para requisições de teste do navegador (Preflight OPTIONS)
-app.options('*', cors());
+// Para o preflight (OPTIONS), use uma RegExp compatível ou remova a linha abaixo, 
+// pois o próprio middleware do cors() já costuma tratar o OPTIONS automaticamente.
+app.options('(.*)', cors());
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
