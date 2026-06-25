@@ -5,7 +5,17 @@ const { createClient } = require('@supabase/supabase-js'); // Importa direto aqu
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+// ==========================================
+// CONFIGURAÇÃO DO CORS (LIBERAÇÃO TOTAL WEB)
+// ==========================================
+app.use(cors({
+    origin: '*', // Permite que qualquer origem (Vercel, Localhost, Celular) acesse a API
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+}));
+
+// Resposta explícita para requisições de teste do navegador (Preflight OPTIONS)
+app.options('*', cors());
 app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
