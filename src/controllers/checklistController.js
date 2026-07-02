@@ -187,28 +187,27 @@ export const checklistController = {
                 }
 
                 const { data: publicData } = supabase.storage
-                    .from(BUCKET_NAME)
-                    .getPublicUrl(filePath);
+    .from(BUCKET_NAME)
+    .getPublicUrl(filePath);
 
-                const photoUrl = publicData?.publicUrl || '';
+const photoUrl = publicData?.publicUrl || '';
 
-                const { data: photo, error: photoError } = await supabase
-                    .from('checklist_photos')
-                    .insert({
-                        checklist_id: checklist.id,
-                        photo_url: photoUrl,
-                        file_path: filePath
-                    })
-                    .select()
-                    .single();
+const { data: photo, error: photoError } = await supabase
+    .from('checklist_photos')
+    .insert({
+        checklist_id: checklist.id,
+        photo_url: photoUrl,
+        file_path: filePath
+    })
+    .select()
+    .single();
 
-                if (photoError) {
-                    console.error('Erro ao salvar foto do checklist:', photoError);
-                    continue;
-                }
+if (photoError) {
+    console.error('Erro ao salvar foto do checklist:', photoError);
+    continue;
+}
 
-                uploadedPhotos.push(photo);
-            }
+uploadedPhotos.push(photo);
 
             return res.status(201).json({
                 success: true,
