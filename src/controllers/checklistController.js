@@ -2,60 +2,61 @@ import { supabase } from '../config/supabaseClient.js';
 
 const BUCKET_NAME = 'device-photos';
 
-function parseItems(items) {
-    if (!items) return {};
+function parseItems(value) {
+    if (!value) return [];
 
-    if (typeof items === 'string') {
-        try {
-            return JSON.parse(items);
-        } catch {
-            return {};
-        }
+    if (Array.isArray(value)) return value;
+
+    try {
+        return JSON.parse(value);
+    } catch {
+        return [];
     }
-
-    return items;
 }
 
-function makeSafeFileName(originalName = 'foto.jpg') {
-    const extension = originalName.includes('.')
-        ? originalName.split('.').pop()
-        : 'jpg';
-
-    return `${Date.now()}-${Math.random().toString(36).substring(2, 10)}.${extension}`;
+function safeFileName(originalName = 'foto.jpg') {
+    const ext = originalName.split('.').pop() || 'jpg';
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 10)}.${ext}`;
 }
 
 export const checklistController = {
-
-    // ==========================
-    // LISTAR CHECKLISTS
-    // ==========================
     async getAll(req, res) {
         try {
-            const { data, error } = await supabase
+            const { data: checklists, error } = await supabase
                 .from('device_checklists')
-                .select(`
-                    id,
-                    service_id,
-                    type,
-                    items,
-                    observations,
-                    technician_signature,
-                    created_at,
-                    updated_at,
-                    checklist_photos (
-                        id,
-                        photo_url,
-                        file_path,
-                        created_at
-                    )
-                `)
+                .select('*')
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
+            if (error) {
+                console.error('Erro Supabase ao listar checklists:', error);
+                throw error;
+            }
 
-            return res.status(200).json({
+            const checklistIds = (checklists || []).map(item => item.id);
+
+            let photos = [];
+
+            if (checklistIds.length > 0) {
+                const { data: photoData, error: photosError } = await supabase
+                    .from('checklist_photos')
+                    .select('*')
+                    .in('checklist_id', checklistIds);
+
+                if (photosError) {
+                    console.error('Erro Supabase ao listar fotos dos checklists:', photosError);
+                } else {
+                    photos = photoData || [];
+                }
+            }
+
+            const result = (checklists || []).map(checklist => ({
+                ...checklist,
+                photos: photos.filter(photo => photo.checklist_id === checklist.id)
+            }));
+
+            return res.json({
                 success: true,
-                data: data || []
+                data: result
             });
 
         } catch (error) {
@@ -63,137 +64,113 @@ export const checklistController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao listar checklists.'
+                error: error.message || 'Erro ao listar checklists.'
             });
         }
     },
 
-    // ==========================
-    // BUSCAR CHECKLIST POR ID
-    // ==========================
     async getById(req, res) {
         try {
             const { id } = req.params;
 
-            const { data, error } = await supabase
+            const { data: checklist, error } = await supabase
                 .from('device_checklists')
-                .select(`
-                    id,
-                    service_id,
-                    type,
-                    items,
-                    observations,
-                    technician_signature,
-                    created_at,
-                    updated_at,
-                    checklist_photos (
-                        id,
-                        photo_url,
-                        file_path,
-                        created_at
-                    )
-                `)
+                .select('*')
                 .eq('id', id)
                 .single();
 
             if (error) throw error;
 
-            return res.status(200).json({
+            const { data: photos, error: photosError } = await supabase
+                .from('checklist_photos')
+                .select('*')
+                .eq('checklist_id', id);
+
+            if (photosError) {
+                console.error('Erro ao buscar fotos do checklist:', photosError);
+            }
+
+            return res.json({
                 success: true,
-                data
+                data: {
+                    ...checklist,
+                    photos: photos || []
+                }
             });
 
         } catch (error) {
             console.error('Erro ao buscar checklist:', error);
 
-            return res.status(404).json({
+            return res.status(500).json({
                 success: false,
-                error: 'Checklist não encontrado.'
+                error: error.message || 'Erro ao buscar checklist.'
             });
         }
     },
 
-    // ==========================
-    // LISTAR CHECKLISTS POR SERVIÇO
-    // ==========================
     async getByService(req, res) {
         try {
             const { serviceId } = req.params;
 
             const { data, error } = await supabase
                 .from('device_checklists')
-                .select(`
-                    id,
-                    service_id,
-                    type,
-                    items,
-                    observations,
-                    technician_signature,
-                    created_at,
-                    updated_at,
-                    checklist_photos (
-                        id,
-                        photo_url,
-                        file_path,
-                        created_at
-                    )
-                `)
+                .select('*')
                 .eq('service_id', serviceId)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
 
-            return res.status(200).json({
+            return res.json({
                 success: true,
                 data: data || []
             });
 
         } catch (error) {
-            console.error('Erro ao buscar checklists do serviço:', error);
+            console.error('Erro ao buscar checklists por serviço:', error);
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao buscar checklists do serviço.'
+                error: error.message || 'Erro ao buscar checklists do serviço.'
             });
         }
     },
 
-    // ==========================
-    // CRIAR CHECKLIST COM FOTOS
-    // ==========================
     async create(req, res) {
         try {
-            const {
-                serviceId,
-                service_id,
-                type,
-                items,
-                observations,
-                technician_signature
-            } = req.body;
+            const serviceId = req.body.service_id || req.body.serviceId;
+            const type = req.body.type || 'entrada';
+            const items = parseItems(req.body.items);
+            const observations = req.body.observations || '';
+            const technicianSignature = req.body.technician_signature || req.body.technicianSignature || '';
 
-            const files = req.files || [];
+            if (!serviceId) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'O serviço é obrigatório para criar o checklist.'
+                });
+            }
 
-            const checklistPayload = {
-                service_id: service_id || serviceId || null,
-                type: type || 'entrada',
-                items: parseItems(items),
-                observations: observations || '',
-                technician_signature: technician_signature || ''
-            };
-
-            const { data: checklist, error: checklistError } = await supabase
+            const { data: checklist, error } = await supabase
                 .from('device_checklists')
-                .insert([checklistPayload])
+                .insert({
+                    service_id: serviceId,
+                    type,
+                    items,
+                    observations,
+                    technician_signature: technicianSignature,
+                    updated_at: new Date().toISOString()
+                })
                 .select()
                 .single();
 
-            if (checklistError) throw checklistError;
+            if (error) throw error;
 
             const uploadedPhotos = [];
 
+            const files = req.files || [];
+
             for (const file of files) {
-                const fileName = makeSafeFileName(file.originalname);
+                const fileName = safeFileName(file.originalname);
                 const filePath = `${checklist.id}/${fileName}`;
 
                 const { error: uploadError } = await supabase.storage
@@ -203,25 +180,33 @@ export const checklistController = {
                         upsert: false
                     });
 
-                if (uploadError) throw uploadError;
+                if (uploadError) {
+                    console.error('Erro ao enviar foto para o Supabase Storage:', uploadError);
+                    continue;
+                }
 
-                const { data: publicUrlData } = supabase.storage
+                const { data: publicData } = supabase.storage
                     .from(BUCKET_NAME)
                     .getPublicUrl(filePath);
 
-                const { data: photoData, error: photoError } = await supabase
+                const photoUrl = publicData?.publicUrl || '';
+
+                const { data: photo, error: photoError } = await supabase
                     .from('checklist_photos')
-                    .insert([{
+                    .insert({
                         checklist_id: checklist.id,
-                        photo_url: publicUrlData.publicUrl,
+                        photo_url: photoUrl,
                         file_path: filePath
-                    }])
+                    })
                     .select()
                     .single();
 
-                if (photoError) throw photoError;
+                if (photoError) {
+                    console.error('Erro ao salvar foto do checklist:', photoError);
+                    continue;
+                }
 
-                uploadedPhotos.push(photoData);
+                uploadedPhotos.push(photo);
             }
 
             return res.status(201).json({
@@ -229,57 +214,51 @@ export const checklistController = {
                 data: {
                     ...checklist,
                     photos: uploadedPhotos
-                },
-                checklistId: checklist.id,
-                message: 'Checklist criado com sucesso.'
+                }
             });
 
         } catch (error) {
-            console.error('Erro ao criar checklist:', error);
+            console.error('Erro ao salvar checklist:', error);
 
             return res.status(500).json({
                 success: false,
-                error: error.message || 'Erro ao criar checklist.'
+                error: error.message || 'Erro ao salvar checklist.'
             });
         }
     },
 
-    // ==========================
-    // EXCLUIR CHECKLIST
-    // ==========================
     async delete(req, res) {
         try {
             const { id } = req.params;
 
-            const { data: photos, error: photoListError } = await supabase
+            const { data: photos } = await supabase
                 .from('checklist_photos')
-                .select('file_path')
+                .select('*')
                 .eq('checklist_id', id);
-
-            if (photoListError) throw photoListError;
 
             const filePaths = (photos || [])
                 .map(photo => photo.file_path)
                 .filter(Boolean);
 
-            if (filePaths.length) {
-                await supabase.storage
+            if (filePaths.length > 0) {
+                const { error: storageError } = await supabase.storage
                     .from(BUCKET_NAME)
                     .remove(filePaths);
+
+                if (storageError) {
+                    console.error('Erro ao remover fotos do storage:', storageError);
+                }
             }
 
-            const { data, error } = await supabase
+            const { error } = await supabase
                 .from('device_checklists')
                 .delete()
-                .eq('id', id)
-                .select()
-                .single();
+                .eq('id', id);
 
             if (error) throw error;
 
-            return res.status(200).json({
-                success: true,
-                data
+            return res.json({
+                success: true
             });
 
         } catch (error) {
@@ -287,9 +266,8 @@ export const checklistController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao excluir checklist.'
+                error: error.message || 'Erro ao excluir checklist.'
             });
         }
     }
-
 };
