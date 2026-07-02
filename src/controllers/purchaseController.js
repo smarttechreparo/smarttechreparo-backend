@@ -1,4 +1,4 @@
-import supabase from '../../supabaseClient.js';
+import { supabase } from '../config/supabaseClient.js';
 
 function toNumber(value, fallback = 0) {
     const n = Number(value);
