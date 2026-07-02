@@ -137,12 +137,12 @@ export const checklistController = {
 
     async create(req, res) {
         try {
-            const serviceId = req.body.service_id || req.body.serviceId;
+            const serviceId = req.body.service_id;
             const type = req.body.type || 'entrada';
             const items = parseItems(req.body.items);
             const observations = req.body.observations || '';
-            const technicianSignature = req.body.technician_signature || req.body.technicianSignature || '';
-
+            const technicianSignature = req.body.technician_signature || '';
+            
             if (!serviceId) {
                 return res.status(400).json({
                     success: false,
@@ -153,13 +153,14 @@ export const checklistController = {
             const { data: checklist, error } = await supabase
                 .from('device_checklists')
                 .insert({
-                    service_id: serviceId,
-                    type,
-                    items,
-                    observations,
-                    technician_signature: technicianSignature,
-                    updated_at: new Date().toISOString()
-                })
+                     .insert({
+                service_id: serviceId,
+                type,
+                items,
+                observations,
+                technician_signature: technicianSignature,
+                updated_at: new Date().toISOString()
+            })
                 .select()
                 .single();
 
