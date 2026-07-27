@@ -108,13 +108,13 @@ export async function login(req, res) {
             process.env.JWT_SECRET,
             { expiresIn: '8h' }
         );
-
-        res.cookie('admin_session', token, cookieOptions);
-
-        return res.status(200).json({
-            success: true,
-            user: safeUser
-        });
+res.cookie('admin_token', token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/'
+});
 
     } catch (error) {
         console.error('Erro no login:', error);
