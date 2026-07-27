@@ -1,18 +1,12 @@
 import jwt from 'jsonwebtoken';
 
-function getTokenFromRequest(req) {
-    const authHeader = req.headers.authorization || '';
-
-    if (authHeader.startsWith('Bearer ')) {
-        return authHeader.replace('Bearer ', '').trim();
-    }
-
-    return req.cookies?.admin_session || req.cookies?.token || null;
-}
+const COOKIE_NAME = 'admin_token';
 
 export function requireAuth(req, res, next) {
     try {
-        const token = getTokenFromRequest(req);
+        const token =
+            req.cookies?.[COOKIE_NAME] ||
+            req.headers.authorization?.replace('Bearer ', '');
 
         if (!token) {
             return res.status(401).json({
@@ -21,23 +15,29 @@ export function requireAuth(req, res, next) {
             });
         }
 
-        const secret = process.env.JWT_SECRET;
-
-        if (!secret) {
-            console.error('JWT_SECRET não configurado no Railway.');
+        if (!process.env.JWT_SECRET) {
             return res.status(500).json({
                 success: false,
                 error: 'JWT_SECRET não configurado no servidor.'
             });
         }
 
-        const decoded = jwt.verify(token, secret);
-        req.user = decoded;
-        req.admin = decoded;
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        req.user = {
+            id: decoded.id,
+            name: decoded.name,
+            email: decoded.email,
+            role: decoded.role || 'admin'
+        };
+
+        req.admin = req.user;
 
         return next();
 
     } catch (error) {
+        console.error('Erro na autenticação:', error.message);
+
         return res.status(401).json({
             success: false,
             error: 'Sessão inválida ou expirada.'
