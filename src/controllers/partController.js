@@ -1,5 +1,21 @@
 import { supabase } from '../config/supabaseClient.js';
 
+function normalizePartPayload(body = {}) {
+    return {
+        name: body.name || '',
+        code: body.code || null,
+        category: body.category || body.categoria || '',
+        description: body.description || body.descricao || '',
+        ncm: body.ncm || '',
+        cfop: body.cfop || '',
+        quantity: Number(body.quantity ?? body.quantidade ?? 0) || 0,
+        cost_price: Number(body.cost_price ?? body.costPrice ?? body.custo ?? 0) || 0,
+        sale_price: Number(body.sale_price ?? body.salePrice ?? body.preco ?? 0) || 0,
+        supplier_id: body.supplier_id || body.supplierId || null,
+        min_stock: Number(body.min_stock ?? body.minStock ?? body.estoque_minimo ?? 0) || 0
+    };
+}
+
 export const partController = {
 
     // ==========================
@@ -13,6 +29,10 @@ export const partController = {
                     id,
                     name,
                     code,
+                    category,
+                    description,
+                    ncm,
+                    cfop,
                     quantity,
                     cost_price,
                     sale_price,
@@ -27,7 +47,7 @@ export const partController = {
 
             return res.status(200).json({
                 success: true,
-                data
+                data: data || []
             });
 
         } catch (error) {
@@ -35,7 +55,7 @@ export const partController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao buscar peças.'
+                error: error.message || 'Erro ao buscar peças.'
             });
         }
     },
@@ -49,7 +69,22 @@ export const partController = {
 
             const { data, error } = await supabase
                 .from('parts')
-                .select('*')
+                .select(`
+                    id,
+                    name,
+                    code,
+                    category,
+                    description,
+                    ncm,
+                    cfop,
+                    quantity,
+                    cost_price,
+                    sale_price,
+                    supplier_id,
+                    min_stock,
+                    created_at,
+                    updated_at
+                `)
                 .eq('id', id)
                 .single();
 
@@ -65,7 +100,7 @@ export const partController = {
 
             return res.status(404).json({
                 success: false,
-                error: 'Peça não encontrada.'
+                error: error.message || 'Peça não encontrada.'
             });
         }
     },
@@ -75,24 +110,34 @@ export const partController = {
     // ==========================
     async create(req, res) {
         try {
-            const part = { ...req.body };
+            const payload = normalizePartPayload(req.body);
 
-            delete part.id;
-            delete part.created_at;
-            delete part.updated_at;
+            if (!payload.name) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Informe o nome da peça.'
+                });
+            }
 
             const { data, error } = await supabase
                 .from('parts')
-                .insert([{
-                    name: part.name,
-                    code: part.code || null,
-                    quantity: Number(part.quantity) || 0,
-                    cost_price: Number(part.cost_price) || 0,
-                    sale_price: Number(part.sale_price) || 0,
-                    supplier_id: part.supplier_id || null,
-                    min_stock: Number(part.min_stock) || 0
-                }])
-                .select()
+                .insert([payload])
+                .select(`
+                    id,
+                    name,
+                    code,
+                    category,
+                    description,
+                    ncm,
+                    cfop,
+                    quantity,
+                    cost_price,
+                    sale_price,
+                    supplier_id,
+                    min_stock,
+                    created_at,
+                    updated_at
+                `)
                 .single();
 
             if (error) throw error;
@@ -107,7 +152,7 @@ export const partController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao cadastrar peça.'
+                error: error.message || 'Erro ao cadastrar peça.'
             });
         }
     },
@@ -118,25 +163,39 @@ export const partController = {
     async update(req, res) {
         try {
             const { id } = req.params;
-            const part = { ...req.body };
 
-            delete part.id;
-            delete part.created_at;
+            const payload = {
+                ...normalizePartPayload(req.body),
+                updated_at: new Date().toISOString()
+            };
+
+            if (!payload.name) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Informe o nome da peça.'
+                });
+            }
 
             const { data, error } = await supabase
                 .from('parts')
-                .update({
-                    name: part.name,
-                    code: part.code || null,
-                    quantity: Number(part.quantity) || 0,
-                    cost_price: Number(part.cost_price) || 0,
-                    sale_price: Number(part.sale_price) || 0,
-                    supplier_id: part.supplier_id || null,
-                    min_stock: Number(part.min_stock) || 0,
-                    updated_at: new Date().toISOString()
-                })
+                .update(payload)
                 .eq('id', id)
-                .select()
+                .select(`
+                    id,
+                    name,
+                    code,
+                    category,
+                    description,
+                    ncm,
+                    cfop,
+                    quantity,
+                    cost_price,
+                    sale_price,
+                    supplier_id,
+                    min_stock,
+                    created_at,
+                    updated_at
+                `)
                 .single();
 
             if (error) throw error;
@@ -151,7 +210,7 @@ export const partController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao atualizar peça.'
+                error: error.message || 'Erro ao atualizar peça.'
             });
         }
     },
@@ -182,7 +241,7 @@ export const partController = {
 
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao excluir peça.'
+                error: error.message || 'Erro ao excluir peça.'
             });
         }
     }
