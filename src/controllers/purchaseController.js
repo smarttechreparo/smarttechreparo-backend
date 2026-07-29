@@ -21,11 +21,15 @@ async function createOrUpdatePartFromPurchaseItem(item, supplierId) {
     }
 
     if (partId) {
-        const { data: existingPart } = await supabase
+        const { data: existingPart, error: findError } = await supabase
             .from('parts')
-            .select('id, quantity')
+            .select('id, name, code, quantity')
             .eq('id', partId)
             .single();
+
+        if (findError && findError.code !== 'PGRST116') {
+            throw findError;
+        }
 
         if (existingPart) {
             const newQuantity = toNumber(existingPart.quantity, 0) + quantity;
@@ -51,19 +55,21 @@ async function createOrUpdatePartFromPurchaseItem(item, supplierId) {
 
     let existingQuery = supabase
         .from('parts')
-        .select('id, quantity')
+        .select('id, name, code, quantity')
         .ilike('name', name.trim())
         .limit(1);
 
     if (code) {
         existingQuery = supabase
             .from('parts')
-            .select('id, quantity')
+            .select('id, name, code, quantity')
             .eq('code', code)
             .limit(1);
     }
 
-    const { data: existingParts } = await existingQuery;
+    const { data: existingParts, error: searchError } = await existingQuery;
+
+    if (searchError) throw searchError;
 
     if (existingParts && existingParts.length > 0) {
         const existingPart = existingParts[0];
@@ -106,6 +112,56 @@ async function createOrUpdatePartFromPurchaseItem(item, supplierId) {
     return data;
 }
 
+async function revertStockFromPurchaseItems(items = []) {
+    if (!Array.isArray(items) || items.length === 0) {
+        return;
+    }
+
+    for (const item of items) {
+        const partId = item.part_id || item.partId || null;
+        const quantityToRemove = toNumber(item.quantity, 0);
+
+        if (!partId || quantityToRemove <= 0) {
+            continue;
+        }
+
+        const { data: part, error: findError } = await supabase
+            .from('parts')
+            .select('id, name, quantity')
+            .eq('id', partId)
+            .single();
+
+        if (findError) {
+            console.warn('Peça não encontrada para reverter estoque:', {
+                partId,
+                error: findError.message
+            });
+            continue;
+        }
+
+        const currentQuantity = toNumber(part.quantity, 0);
+        const newQuantity = Math.max(0, currentQuantity - quantityToRemove);
+
+        const { error: updateError } = await supabase
+            .from('parts')
+            .update({
+                quantity: newQuantity,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', partId);
+
+        if (updateError) throw updateError;
+
+        console.log('📦 Estoque revertido pela exclusão da compra:', {
+            partId,
+            partName: part.name,
+            antes: currentQuantity,
+            removeu: quantityToRemove,
+            depois: newQuantity
+        });
+    }
+}
+
 function normalizePurchase(row) {
     if (!row) return null;
 
@@ -128,9 +184,13 @@ function normalizePurchase(row) {
         entryDate: row.entry_date || row.entryDate || null,
 
         paymentMethod: row.payment_method || row.paymentMethod || 'dinheiro',
+        payment_method: row.payment_method || row.paymentMethod || 'dinheiro',
 
         productsTotal: toNumber(row.products_total ?? row.productsTotal, 0),
+        products_total: toNumber(row.products_total ?? row.productsTotal, 0),
+
         otherExpenses: toNumber(row.other_expenses ?? row.otherExpenses, 0),
+        other_expenses: toNumber(row.other_expenses ?? row.otherExpenses, 0),
 
         total: toNumber(row.total_amount ?? row.total, 0),
         total_amount: toNumber(row.total_amount ?? row.total, 0),
@@ -157,7 +217,7 @@ export const purchaseController = {
             console.error('Erro ao listar compras:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao listar compras.'
+                error: error.message || 'Erro ao listar compras.'
             });
         }
     },
@@ -273,21 +333,38 @@ export const purchaseController = {
         try {
             const { id } = req.params;
 
-            const { error } = await supabase
+            const { data: purchase, error: findError } = await supabase
+                .from('purchases')
+                .select('id, invoice_number, items')
+                .eq('id', id)
+                .single();
+
+            if (findError) throw findError;
+
+            const items = Array.isArray(purchase?.items) ? purchase.items : [];
+
+            await revertStockFromPurchaseItems(items);
+
+            const { data: deletedPurchase, error: deleteError } = await supabase
                 .from('purchases')
                 .delete()
-                .eq('id', id);
+                .eq('id', id)
+                .select()
+                .single();
 
-            if (error) throw error;
+            if (deleteError) throw deleteError;
 
             return res.json({
-                success: true
+                success: true,
+                data: normalizePurchase(deletedPurchase),
+                message: 'Compra excluída e estoque revertido com sucesso.'
             });
+
         } catch (error) {
             console.error('Erro ao excluir compra:', error);
             return res.status(500).json({
                 success: false,
-                error: 'Erro ao excluir compra.'
+                error: error.message || 'Erro ao excluir compra.'
             });
         }
     }
