@@ -305,7 +305,8 @@ export const saleController = {
             });
         }
 
-        // 1. Busca a venda antes de excluir
+        // 1. Buscar venda antes de excluir
+        // maybeSingle não quebra quando não encontra registro
         const { data: sale, error: saleError } = await supabase
             .from('sales')
             .select('*')
@@ -317,18 +318,26 @@ export const saleController = {
         if (!sale) {
             return res.status(404).json({
                 success: false,
-                error: 'Venda não encontrada.'
+                error: 'Venda não encontrada ou já excluída.'
             });
         }
 
         const items = Array.isArray(sale.items) ? sale.items : [];
 
-        // 2. Devolve estoque das peças
+        // 2. Devolver estoque
         for (const item of items) {
-            const partId = item.part_id || item.partId || null;
-            const quantity = Number(item.quantity || item.qty || 0) || 0;
+            const partId =
+                item.part_id ||
+                item.partId ||
+                item.id ||
+                null;
 
-            if (!partId || quantity <= 0) continue;
+            const quantity =
+                Number(item.quantity ?? item.qty ?? 0) || 0;
+
+            if (!partId || quantity <= 0) {
+                continue;
+            }
 
             const { data: part, error: partError } = await supabase
                 .from('parts')
@@ -337,9 +346,14 @@ export const saleController = {
                 .maybeSingle();
 
             if (partError) throw partError;
-            if (!part) continue;
 
-            const newQuantity = (Number(part.quantity) || 0) + quantity;
+            if (!part) {
+                console.warn('Peça não encontrada ao devolver estoque:', partId);
+                continue;
+            }
+
+            const currentQuantity = Number(part.quantity) || 0;
+            const newQuantity = currentQuantity + quantity;
 
             const { error: updatePartError } = await supabase
                 .from('parts')
@@ -352,30 +366,29 @@ export const saleController = {
             if (updatePartError) throw updatePartError;
         }
 
-        // 3. Remove movimentações do caixa vinculadas à venda
-        // NÃO usar .single() aqui, porque pode existir 0 ou mais lançamentos.
-        const { error: cashDeleteError } = await supabase
+        // 3. Remover movimentações do caixa vinculadas à venda
+        // Não usar .single() aqui, porque pode existir 0 ou mais movimentações
+        const { error: cashError } = await supabase
             .from('cash_movements')
             .delete()
             .eq('reference_type', 'sale')
             .eq('reference_id', id);
 
-        if (cashDeleteError) throw cashDeleteError;
+        if (cashError) throw cashError;
 
-        // 4. Exclui a venda
-        // Usar maybeSingle para evitar erro se o Supabase não retornar exatamente 1 objeto.
-        const { data: deletedSale, error: deleteError } = await supabase
+        // 4. Excluir venda
+        // Não usar .single() aqui para evitar:
+        // "Cannot coerce the result to a single JSON object"
+        const { error: deleteError } = await supabase
             .from('sales')
             .delete()
-            .eq('id', id)
-            .select()
-            .maybeSingle();
+            .eq('id', id);
 
         if (deleteError) throw deleteError;
 
         return res.status(200).json({
             success: true,
-            data: deletedSale || sale,
+            data: sale,
             message: 'Venda excluída, estoque devolvido e caixa ajustado.'
         });
 
