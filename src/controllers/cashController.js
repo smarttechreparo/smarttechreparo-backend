@@ -1,9 +1,5 @@
 import { supabase } from '../config/supabaseClient.js';
 
-// ==========================
-// HELPERS
-// ==========================
-
 function toNumber(value, fallback = 0) {
     const number = Number(value);
     return Number.isFinite(number) ? number : fallback;
@@ -52,14 +48,7 @@ async function calculateCashBalance(cashRegisterId, openingBalance = 0) {
     };
 }
 
-// ==========================
-// CONTROLLER
-// ==========================
-
 export const cashController = {
-    // ==========================
-    // STATUS DO CAIXA
-    // ==========================
     async getStatus(req, res) {
         try {
             const cashRegister = await getOpenCashRegister();
@@ -71,6 +60,7 @@ export const cashController = {
                         isOpen: false,
                         status: 'fechado',
                         cashRegister: null,
+                        cash_register: null,
                         opening_balance: 0,
                         total_entries: 0,
                         total_exits: 0,
@@ -100,7 +90,6 @@ export const cashController = {
 
         } catch (error) {
             console.error('Erro ao buscar status do caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao buscar status do caixa.'
@@ -108,9 +97,6 @@ export const cashController = {
         }
     },
 
-    // ==========================
-    // LISTAR MOVIMENTAÇÕES
-    // ==========================
     async getAll(req, res) {
         try {
             const { data, error } = await supabase
@@ -127,7 +113,6 @@ export const cashController = {
 
         } catch (error) {
             console.error('Erro ao listar movimentações do caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao listar movimentações do caixa.'
@@ -135,9 +120,6 @@ export const cashController = {
         }
     },
 
-    // ==========================
-    // ABRIR CAIXA
-    // ==========================
     async open(req, res) {
         try {
             const alreadyOpen = await getOpenCashRegister();
@@ -178,7 +160,6 @@ export const cashController = {
 
         } catch (error) {
             console.error('Erro ao abrir caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao abrir caixa.'
@@ -186,9 +167,6 @@ export const cashController = {
         }
     },
 
-    // ==========================
-    // CRIAR MOVIMENTAÇÃO
-    // ==========================
     async createMovement(req, res) {
         try {
             const cashRegister = await getOpenCashRegister();
@@ -201,29 +179,11 @@ export const cashController = {
             }
 
             const type = req.body.type || req.body.tipo || 'entrada';
-            const description =
-                req.body.description ||
-                req.body.descricao ||
-                'Movimentação de caixa';
-
-            const amount = toNumber(
-                req.body.amount ?? req.body.value ?? req.body.valor ?? 0
-            );
-
-            const paymentMethod =
-                req.body.payment_method ||
-                req.body.paymentMethod ||
-                'dinheiro';
-
-            const referenceType =
-                req.body.reference_type ||
-                req.body.referenceType ||
-                null;
-
-            const referenceId =
-                req.body.reference_id ||
-                req.body.referenceId ||
-                null;
+            const description = req.body.description || req.body.descricao || 'Movimentação de caixa';
+            const amount = toNumber(req.body.amount ?? req.body.value ?? req.body.valor, 0);
+            const paymentMethod = req.body.payment_method || req.body.paymentMethod || 'dinheiro';
+            const referenceType = req.body.reference_type || req.body.referenceType || null;
+            const referenceId = req.body.reference_id || req.body.referenceId || null;
 
             if (!['entrada', 'saida'].includes(type)) {
                 return res.status(400).json({
@@ -263,7 +223,6 @@ export const cashController = {
 
         } catch (error) {
             console.error('Erro ao criar movimentação do caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao criar movimentação do caixa.'
@@ -271,9 +230,6 @@ export const cashController = {
         }
     },
 
-    // ==========================
-    // FECHAR CAIXA
-    // ==========================
     async close(req, res) {
         try {
             const cashRegister = await getOpenCashRegister();
@@ -285,17 +241,8 @@ export const cashController = {
                 });
             }
 
-            const balanceData = await calculateCashBalance(
-                cashRegister.id,
-                cashRegister.opening_balance
-            );
-
-            const closingBalance = toNumber(
-                req.body.closing_balance ??
-                req.body.closingBalance ??
-                balanceData.balance
-            );
-
+            const balanceData = await calculateCashBalance(cashRegister.id, cashRegister.opening_balance);
+            const closingBalance = toNumber(req.body.closing_balance ?? req.body.closingBalance ?? balanceData.balance);
             const notes = req.body.notes || cashRegister.notes || '';
 
             const { data, error } = await supabase
@@ -326,7 +273,6 @@ export const cashController = {
 
         } catch (error) {
             console.error('Erro ao fechar caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao fechar caixa.'
@@ -334,9 +280,6 @@ export const cashController = {
         }
     },
 
-    // ==========================
-    // EXCLUIR MOVIMENTAÇÃO
-    // ==========================
     async deleteMovement(req, res) {
         try {
             const { id } = req.params;
@@ -348,21 +291,23 @@ export const cashController = {
                 });
             }
 
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('cash_movements')
                 .delete()
-                .eq('id', id);
+                .eq('id', id)
+                .select()
+                .single();
 
             if (error) throw error;
 
             return res.status(200).json({
                 success: true,
+                data,
                 message: 'Movimentação excluída com sucesso.'
             });
 
         } catch (error) {
             console.error('Erro ao excluir movimentação do caixa:', error);
-
             return res.status(500).json({
                 success: false,
                 error: error.message || 'Erro ao excluir movimentação do caixa.'
