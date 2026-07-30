@@ -295,41 +295,96 @@ export const saleController = {
     },
 
     async delete(req, res) {
-        try {
-            const { id } = req.params;
+    try {
+        const { id } = req.params;
 
-            const { data: sale, error: findError } = await supabase
-                .from('sales')
-                .select('id, items')
-                .eq('id', id)
-                .single();
-
-            if (findError) throw findError;
-
-            await applyStockMovementForSaleItems(sale.items || [], 'entrada');
-            await deleteCashMovementsBySaleId(id);
-
-            const { data, error } = await supabase
-                .from('sales')
-                .delete()
-                .eq('id', id)
-                .select()
-                .single();
-
-            if (error) throw error;
-
-            return res.status(200).json({
-                success: true,
-                data,
-                message: 'Venda excluída, estoque devolvido e caixa ajustado.'
-            });
-
-        } catch (error) {
-            console.error('Erro ao excluir venda:', error);
-            return res.status(500).json({
+        if (!id) {
+            return res.status(400).json({
                 success: false,
-                error: error.message || 'Erro ao excluir venda.'
+                error: 'ID da venda não informado.'
             });
         }
+
+        // 1. Busca a venda antes de excluir
+        const { data: sale, error: saleError } = await supabase
+            .from('sales')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+
+        if (saleError) throw saleError;
+
+        if (!sale) {
+            return res.status(404).json({
+                success: false,
+                error: 'Venda não encontrada.'
+            });
+        }
+
+        const items = Array.isArray(sale.items) ? sale.items : [];
+
+        // 2. Devolve estoque das peças
+        for (const item of items) {
+            const partId = item.part_id || item.partId || null;
+            const quantity = Number(item.quantity || item.qty || 0) || 0;
+
+            if (!partId || quantity <= 0) continue;
+
+            const { data: part, error: partError } = await supabase
+                .from('parts')
+                .select('id, quantity')
+                .eq('id', partId)
+                .maybeSingle();
+
+            if (partError) throw partError;
+            if (!part) continue;
+
+            const newQuantity = (Number(part.quantity) || 0) + quantity;
+
+            const { error: updatePartError } = await supabase
+                .from('parts')
+                .update({
+                    quantity: newQuantity,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', partId);
+
+            if (updatePartError) throw updatePartError;
+        }
+
+        // 3. Remove movimentações do caixa vinculadas à venda
+        // NÃO usar .single() aqui, porque pode existir 0 ou mais lançamentos.
+        const { error: cashDeleteError } = await supabase
+            .from('cash_movements')
+            .delete()
+            .eq('reference_type', 'sale')
+            .eq('reference_id', id);
+
+        if (cashDeleteError) throw cashDeleteError;
+
+        // 4. Exclui a venda
+        // Usar maybeSingle para evitar erro se o Supabase não retornar exatamente 1 objeto.
+        const { data: deletedSale, error: deleteError } = await supabase
+            .from('sales')
+            .delete()
+            .eq('id', id)
+            .select()
+            .maybeSingle();
+
+        if (deleteError) throw deleteError;
+
+        return res.status(200).json({
+            success: true,
+            data: deletedSale || sale,
+            message: 'Venda excluída, estoque devolvido e caixa ajustado.'
+        });
+
+    } catch (error) {
+        console.error('Erro ao excluir venda:', error);
+
+        return res.status(500).json({
+            success: false,
+            error: error.message || 'Erro ao excluir venda.'
+        });
     }
-};
+}
