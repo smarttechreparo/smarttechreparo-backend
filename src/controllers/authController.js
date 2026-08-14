@@ -14,15 +14,13 @@ const supabase = supabaseUrl && supabaseKey
     })
     : null;
 
-const COOKIE_NAME = 'admin_token';
-
-const cookieOptions = {
+res.cookie('admin_token', token, {
     httpOnly: true,
     secure: true,
-    sameSite: 'none',
+    sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/'
-};
+});
 
 function sanitizeUser(user) {
     if (!user) return null;
